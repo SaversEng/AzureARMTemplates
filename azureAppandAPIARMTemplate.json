@@ -1,0 +1,292 @@
+{
+  "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the environment to create.  This will result in resources named like {environmentName}-{appName}"
+      }
+    },
+    "appName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the AppService for the Portal to create.  This will result in resources named like {environmentName}-{appName}"
+      }
+    },
+    "apiName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the AppService for the API to create.  This will result in resources named like {environmentName}-{apiName}"
+      }
+    },
+    "clientIdApp": {
+      "type": "string",
+      "metadata": {
+        "description": "ida:ClientId for the Portal"
+      }
+    },
+    "clientIdApi": {
+      "type": "string",
+      "metadata": {
+        "description": "ida:ClientId for the API"
+      }
+    },
+    "clientSecretApi": {
+      "type": "string",
+      "metadata": {
+        "description": "ida:ClientSecret for the API"
+      }
+    },
+    "crmOrgUrl": {
+      "type": "string",
+      "metadata": {
+        "description": "Connection String to CRM"
+      }
+    },
+    "apmAccessKey": {
+      "type": "string",
+      "metadata": {
+        "description": "AccessKey required by AppDynamics"
+      }
+    },
+    "splunkAccessToken": {
+      "type": "string",
+      "metadata": {
+        "description": "AccessToken required by Splunk"
+      }
+    },
+    "webEdition": {
+      "defaultValue": "Basic",
+      "allowedValues": [
+        "Free",
+        "Shared",
+        "Basic",
+        "Standard",
+        "Premium"
+      ],
+      "type": "string",
+      "metadata": {
+        "description": "The pricing tier for the hosting plan."
+      }
+    },
+    "webAppSize": {
+      "defaultValue": "0",
+      "allowedValues": [
+        "0",
+        "1",
+        "2"
+      ],
+      "type": "string",
+      "metadata": {
+        "description": "The instance size of the hosting plan (small, medium, or large)."
+      }
+    },
+    "region": {
+      "defaultValue": "West US",
+      "type": "string",
+      "metadata": {
+        "description": "The location of the web app."
+      }
+    },
+    "enableAPM": {
+      "type": "string",
+      "defaultValue": "No",
+      "metadata": {
+        "description": "Should the App Dynamics Extension be installed in the App Service?"
+      },
+      "allowedValues": [
+        "No",
+        "Yes"
+      ]
+    }
+  },
+  "variables": {
+    "appServiceName": "[concat(parameters('environmentName'), '-', parameters('appName'))]",
+    "apiServiceName": "[concat(parameters('environmentName'), '-', parameters('apiName'))]",
+    "siteName": "[concat(parameters('environmentName'), '-', parameters('appName'))]",
+    "azureHttpsHeader": "https://"
+  },
+  "resources": [
+    {
+      "comments": "App Service Plan for appName",
+      "type": "Microsoft.Web/serverfarms",
+      "name": "[variables('appServiceName')]",
+      "apiVersion": "2014-06-01",
+      "location": "[parameters('region')]",
+      "properties": {
+        "name": "[variables('appServiceName')]",
+        "sku": "[parameters('webEdition')]",
+        "workerSize": "[parameters('webAppSize')]",
+        "numberOfWorkers": 1
+      },
+      "dependsOn": []
+    },
+    {
+      "comments": "App Service Plan for apiName",
+      "type": "Microsoft.Web/serverfarms",
+      "name": "[variables('apiServiceName')]",
+      "apiVersion": "2014-06-01",
+      "location": "[parameters('region')]",
+      "properties": {
+        "name": "[variables('apiServiceName')]",
+        "sku": "[parameters('webEdition')]",
+        "workerSize": "[parameters('webAppSize')]",
+        "numberOfWorkers": 1
+      },
+      "dependsOn": []
+    },
+    {
+      "comments": "App Service for appServiceName",
+      "type": "Microsoft.Web/sites",
+      "name": "[variables('appServiceName')]",
+      "apiVersion": "2015-08-01",
+      "location": "[parameters('region')]",
+      "properties": {
+        "name": "[variables('appServiceName')]",
+        "serverFarmId": "[variables('appServiceName')]",
+        "siteConfig": {
+          "AlwaysOn": true
+        }
+      },
+      "resources": [
+        {
+          "apiVersion": "2015-08-01",
+          "name": "AppDynamics.WindowsAzure.SiteExtension.4.4.Release",
+          "type": "siteextensions",
+          "dependsOn": [
+            "[variables('appServiceName')]"
+          ]
+        },
+        {
+          "comments": "AppSettings for appServiceName",
+          "type": "config",
+          "name": "appsettings",
+          "apiVersion": "2015-08-01",
+          "properties": {
+            "portalServiceApiUrl": "[concat(variables('azureHttpsHeader'), variables('apiServiceName'), '.azurewebsites.net')]",
+            "ida:ClientId": "[parameters('clientIdApp')]",
+            "ida:RedirectUri": "[concat(variables('azureHttpsHeader'), variables('appServiceName'), '.azurewebsites.net')]",
+            "ida:PostLogoutRedirectUri": "[concat(variables('azureHttpsHeader'), variables('appServiceName'), '.azurewebsites.net')]",
+            "Splunk.Host": "hecext.savers.com",
+            "Splunk.UseHttps": "true",
+            "Splunk.Endpoint": "services/collector/event",
+            "Splunk.Port": "18443",
+            "Splunk.AccessToken": "[parameters('splunkAccessToken')]",
+            "Splunk.SourceType": "[concat('Azure:', parameters('appName'), ':Portal')]",
+            "Splunk.Source": "[concat(parameters('appName'), ':', parameters('environmentName'))]",
+            "ApplicationInsightsKey": "[reference(concat('Microsoft.Insights/components/', variables('appServiceName'))).InstrumentationKey]",
+            "appdynamics.controller.hostName": "[if(equals(parameters('enableAPM'), 'Yes'), 'Savers.saas.appdynamics.com', '')]",
+            "appdynamics.controller.port": "[if(equals(parameters('enableAPM'), 'Yes'), '443', '')]",
+            "appdynamics.controller.ssl.enabled": "[if(equals(parameters('enableAPM'), 'Yes'), 'True', '')]",
+            "appdynamics.agent.accountName": "[if(equals(parameters('enableAPM'), 'Yes'), 'Savers', '')]",
+            "appdynamics.agent.accountAccessKey": "[if(equals(parameters('enableAPM'), 'Yes'), parameters('apmAccessKey'), '')]",
+            "appdynamics.agent.applicationName": "[variables('appServiceName')]"
+          },
+          "dependsOn": [
+            "[concat('Microsoft.Web/sites/', variables('appServiceName'))]"
+          ]
+        }
+      ],
+      "dependsOn": [
+        "[concat('Microsoft.Web/serverfarms/', variables('appServiceName'))]"
+      ]
+    },
+    {
+      "comments": "App Service for apiServiceName",
+      "type": "Microsoft.Web/sites",
+      "name": "[variables('apiServiceName')]",
+      "apiVersion": "2015-08-01",
+      "location": "[parameters('region')]",
+      "properties": {
+        "name": "[variables('apiServiceName')]",
+        "serverFarmId": "[variables('apiServiceName')]",
+        "siteConfig": {
+          "AlwaysOn": true
+        }
+      },
+      "resources": [
+        {
+          "apiVersion": "2015-08-01",
+          "name": "AppDynamics.WindowsAzure.SiteExtension.4.4.Release",
+          "type": "siteextensions",
+          "dependsOn": [
+            "[variables('apiServiceName')]"
+          ]
+        },
+        {
+          "comments": "AppSettings for apiServiceName",
+          "type": "config",
+          "name": "appsettings",
+          "apiVersion": "2015-08-01",
+          "properties": {
+            "ida:ClientId": "[parameters('clientIdApi')]",
+            "ida:ClientSecret": "[parameters('clientSecretApi')]",
+            "Splunk.Host": "hecext.savers.com",
+            "Splunk.UseHttps": "true",
+            "Splunk.Endpoint": "services/collector/event",
+            "Splunk.Port": "18443",
+            "Splunk.AccessToken": "[parameters('splunkAccessToken')]",
+            "Splunk.SourceType": "[concat('Azure:', parameters('apiName'), ':Service')]",
+            "Splunk.Source": "[concat(parameters('apiName'), ':', parameters('environmentName'))]",
+            "ApplicationInsightsKey": "[reference(concat('Microsoft.Insights/components/', variables('apiServiceName'))).InstrumentationKey]",
+            "appdynamics.controller.hostName": "[if(equals(parameters('enableAPM'), 'Yes'), 'Savers.saas.appdynamics.com', '')]",
+            "appdynamics.controller.port": "[if(equals(parameters('enableAPM'), 'Yes'), '443', '')]",
+            "appdynamics.controller.ssl.enabled": "[if(equals(parameters('enableAPM'), 'Yes'), 'True', '')]",
+            "appdynamics.agent.accountName": "[if(equals(parameters('enableAPM'), 'Yes'), 'Savers', '')]",
+            "appdynamics.agent.accountAccessKey": "[if(equals(parameters('enableAPM'), 'Yes'), parameters('apmAccessKey'), '')]",
+            "appdynamics.agent.applicationName": "[variables('appServiceName')]"
+          },
+          "dependsOn": [
+            "[concat('Microsoft.Web/sites/', variables('apiServiceName'))]"
+          ]
+        },
+        {
+          "apiVersion": "2015-08-01",
+          "name": "connectionstrings",
+          "type": "config",
+          "dependsOn": [
+            "[resourceId('Microsoft.Web/sites', variables('apiServiceName'))]"
+          ],
+          "properties": {
+            "CrmOrgUrl": {
+              "value": "[parameters('crmOrgUrl')]",
+              "type": "Custom"
+            }
+          }
+        }
+      ],
+      "dependsOn": [
+        "[concat('Microsoft.Web/serverfarms/', variables('apiServiceName'))]"
+      ]
+    },
+    {
+      "comments": "Application Insights for the appServiceName",
+      "type": "Microsoft.Insights/components",
+      "name": "[variables('appServiceName')]",
+      "apiVersion": "2014-04-01",
+      "location": "eastus",
+      "properties": {
+        "ApplicationId": "[variables('appServiceName')]"
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Web/sites/', variables('appServiceName'))]",
+        "[concat('Microsoft.Web/serverfarms/', variables('appServiceName'))]"
+      ]
+    },
+    {
+      "comments": "Application Insights for the apiServiceName",
+      "type": "Microsoft.Insights/components",
+      "name": "[variables('apiServiceName')]",
+      "apiVersion": "2014-04-01",
+      "location": "eastus",
+      "properties": {
+        "ApplicationId": "[variables('apiServiceName')]"
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Web/sites/', variables('apiServiceName'))]",
+        "[concat('Microsoft.Web/serverfarms/', variables('apiServiceName'))]"
+      ]
+    }
+  ]
+}

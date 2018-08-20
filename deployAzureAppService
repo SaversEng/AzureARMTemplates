@@ -1,0 +1,152 @@
+{
+  "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "serviceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the Service to create."
+      }
+    },
+    "webEdition": {
+      "defaultValue": "Basic",
+      "allowedValues": [
+        "Free",
+        "Shared",
+        "Basic",
+        "Standard",
+        "Premium"
+      ],
+      "type": "string",
+      "metadata": {
+        "description": "The pricing tier for the hosting plan."
+      }
+    },
+    "webAppSize": {
+      "defaultValue": "0",
+      "allowedValues": [
+        "0",
+        "1",
+        "2"
+      ],
+      "type": "string",
+      "metadata": {
+        "description": "The instance size of the hosting plan (small, medium, or large)."
+      }
+    },
+    "region": {
+      "defaultValue": "West US",
+      "type": "string",
+      "metadata": {
+        "description": "The location of the database server. For best performance, this location should be the same as the location of the web app."
+      }
+    },
+    "apmAccessKey": {
+      "type": "string",
+      "metadata": {
+        "description": "AccessKey required by AppDynamics"
+      }
+    },
+    "splunkAccessToken": {
+      "type": "string",
+      "metadata": {
+        "description": "AccessToken required by Splunk"
+      }
+    },
+    "enableAPM": {
+      "type": "string",
+      "defaultValue": "No",
+      "metadata": {
+        "description": "Should the App Dynamics Extension be installed in the App Service?"
+      },
+      "allowedValues": [
+        "No",
+        "Yes"
+      ]
+    }
+  },
+  "variables": {
+    "fullServiceName": "[parameters('serviceName')]",
+    "siteName": "[parameters('serviceName')]",
+    "azureHttpsHeader": "['https://']"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Web/serverfarms",
+      "name": "[variables('fullServiceName')]",
+      "apiVersion": "2014-06-01",
+      "location": "[parameters('region')]",
+      "properties": {
+        "name": "[variables('fullServiceName')]",
+        "sku": "[parameters('webEdition')]",
+        "workerSize": "[parameters('webAppSize')]",
+        "numberOfWorkers": 1
+      },
+      "dependsOn": []
+    },
+    {
+      "comments": "[concat('App Service for', variables('fullServiceName'))]",
+      "type": "Microsoft.Web/sites",
+      "name": "[variables('fullServiceName')]",
+      "apiVersion": "2015-08-01",
+      "location": "[parameters('region')]",
+      "tags": {
+        "[concat('hidden-related:', resourceGroup().id, '/providers/Microsoft.Web/serverfarms/', variables('fullServiceName'))]": "empty"
+      },
+      "properties": {
+        "name": "[variables('fullServiceName')]",
+        "serverFarmId": "[variables('fullServiceName')]",
+        "siteConfig": {
+          "AlwaysOn": true
+        }
+      },
+      "resources": [
+        {
+          "comments": "[concat('AppSettings for', variables('fullServiceName'))]",
+          "type": "config",
+          "name": "appsettings",
+          "apiVersion": "2015-08-01",
+          "properties": {
+            "ApplicationInsightsKey": "[reference(concat('Microsoft.Insights/components/', variables('fullServiceName'))).InstrumentationKey]",
+            "Splunk.Host": "hecext.savers.com",
+            "Splunk.UseHttps": "true",
+            "Splunk.Endpoint": "services/collector/event",
+            "Splunk.Port": "18443",
+            "Splunk.AccessToken": "[parameters('splunkAccessToken')]",
+            "Splunk.SourceType": "Azure:CMD:Service",
+            "Splunk.Source": "[concat(variables('fullServiceName'), ':', parameters('environmentName'))]",
+            "appdynamics.controller.hostName": "[if(equals(parameters('enableAPM'), 'Yes'), 'Savers.saas.appdynamics.com', '')]",
+            "appdynamics.controller.port": "[if(equals(parameters('enableAPM'), 'Yes'), '443', '')]",
+            "appdynamics.controller.ssl.enabled": "[if(equals(parameters('enableAPM'), 'Yes'), 'True', '')]",
+            "appdynamics.agent.accountName": "[if(equals(parameters('enableAPM'), 'Yes'), 'Savers', '')]",
+            "appdynamics.agent.accountAccessKey": "[if(equals(parameters('enableAPM'), 'Yes'), parameters('apmAccessKey'), '')]",
+            "appdynamics.agent.applicationName": "[variables('fullServiceName')]"
+          },
+          "dependsOn": [
+            "[concat('Microsoft.Web/sites/', variables('fullServiceName'))]"
+          ]
+        }
+      ],
+      "dependsOn": [
+        "[concat('Microsoft.Web/serverfarms/', variables('fullServiceName'))]"
+      ]
+    },
+    {
+      "comments": "[concat('Application Insights for', variables('fullServiceName'))]",
+      "type": "Microsoft.Insights/components",
+      "name": "[variables('fullServiceName')]",
+      "apiVersion": "2014-04-01",
+      "location": "eastus",
+      "tags": {
+        "[concat('hidden-link:', resourceGroup().id, '/providers/Microsoft.Web/sites/', variables('fullServiceName'))]": "Resource"
+      },
+      "properties": {
+        "ApplicationId": "[variables('fullServiceName')]"
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Web/sites/', variables('fullServiceName'))]",
+        "[concat('Microsoft.Web/serverfarms/', variables('fullServiceName'))]"
+      ]
+    }
+  ]
+}
